@@ -30,17 +30,13 @@ public class SecurityConfig {
     private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
 
     private static final String[] PUBLIC_READ_ENDPOINTS = {
-            // "/courts/**",
-            // "/courtsHours/**",
-            // "/sports/**",
-            // "/activities/**",
-            // "/profiles/**",
-            // "/hours/**",
-            // "/months/**"
+            // "/example/**",
     };
 
     private static final String[] PUBLIC_WRITE_ENDPOINTS = {
-            "/users/register", "/users/login",
+            "/users/register",
+            "/users/login",
+            "/payments/stripe/webhook/**",
     };
 
     @Bean

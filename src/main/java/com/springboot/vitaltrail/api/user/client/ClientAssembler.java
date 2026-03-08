@@ -13,6 +13,8 @@ public class ClientAssembler {
             .idClient(clientEntity.getIdClient())
             .user(clientEntity.getUser().getIdUser())
             .phone(clientEntity.getPhone())
+            .customerId(clientEntity.getCustomerId())
+            .paymentMethodId(clientEntity.getPaymentMethodId())
             .build();
     }
 }

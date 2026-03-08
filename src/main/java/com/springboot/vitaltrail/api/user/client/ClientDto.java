@@ -13,4 +13,6 @@ public class ClientDto {
     @NotNull
     private UUID user;
     private String phone;
+    private String customerId;
+    private String paymentMethodId;
 }

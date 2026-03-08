@@ -25,14 +25,14 @@ import java.util.concurrent.TimeUnit;
 public class WebClientConfig {
     private final Dotenv dotenv;
 
-    @Bean
-    public WebClient laravelWebClient() {
-        return buildWebClient(dotenv.get("LARAVEL_API_ENDPOINT"));
-    }
+    // @Bean
+    // public WebClient laravelWebClient() {
+    //     return buildWebClient(dotenv.get("LARAVEL_API_ENDPOINT"));
+    // }
 
     @Bean
     public WebClient mailgunWebClient() {
-        return buildWebClient(dotenv.get("MAILGUN_API_ENDPOINT"));
+        return buildWebClient(dotenv.get("MAILGUN_BACKEND_URL"));
     }
 
     private WebClient buildWebClient(String baseUrl) {

@@ -25,11 +25,25 @@ public class ClientEntity {
 
     @Column(name = "phone", length = 20)
     private String phone;
+
+    @Column(name = "customer_id")
+    private String customerId = null;
+
+    @Column(name = "payment_method_id")
+    private String paymentMethodId = null;
     
     @Builder
-    public ClientEntity(Long idClient, UserEntity user, String phone) {
+    public ClientEntity(
+        Long idClient,
+        UserEntity user,
+        String phone,
+        String customerId,
+        String paymentMethodId
+    ) {
         this.idClient = idClient;
         this.user = user;
         this.phone = phone;
+        this.customerId = customerId;
+        this.paymentMethodId = paymentMethodId;
     }
 }
