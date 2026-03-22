@@ -1,20 +1,16 @@
 package com.springboot.vitaltrail.api.security;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.context.annotation.Bean;
 
 import com.springboot.vitaltrail.api.exception.CustomAccessDeniedHandler;
 import com.springboot.vitaltrail.api.exception.CustomAuthenticationEntryPoint;
@@ -34,8 +30,6 @@ public class SecurityConfig {
     };
 
     private static final String[] PUBLIC_WRITE_ENDPOINTS = {
-            "/users/register",
-            "/users/login",
             "/payments/stripe/webhook/**",
     };
 
@@ -56,17 +50,5 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class); // Filtro JWT personalizado (middleware)
 
         return http.build();
-    }
-
-    @Bean
-    public PasswordEncoder encoder() {
-        return new BCryptPasswordEncoder(); // Encripta y verifica contraseñas
-    }
-
-    // Manager de autenticación
-    // Accede de forma predeterminada al AuthenticationProvider, que a su vez accede al UserDetailsService (userDetailsServiceImpl)
-    @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
-        return configuration.getAuthenticationManager();
     }
 }

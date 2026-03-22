@@ -22,7 +22,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserDto getCurrentUser() {
         var user = getByEmail(authUtils.getCurrentUserEmail());
-        return userAssembler.toUserResponse(user, null, null);
+        return userAssembler.toUserResponse(user);
     }
 
     @Transactional(readOnly = true)

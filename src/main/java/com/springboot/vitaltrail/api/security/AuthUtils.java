@@ -3,6 +3,7 @@ package com.springboot.vitaltrail.api.security;
 import java.util.Collection;
 import java.util.UUID;
 
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -27,7 +28,8 @@ public class AuthUtils {
     }
 
     public boolean isAuthenticated() {
-        return getAuthentication() != null;
+        var authentication = getAuthentication();
+        return authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);
     }
 
     public  boolean isAnonymousRole() {

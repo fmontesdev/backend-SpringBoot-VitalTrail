@@ -23,10 +23,6 @@ public class UserDto {
     @NotNull
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String password;
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private String token;
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private String refreshToken;
     @NotNull
     private String name;
     @NotNull
@@ -46,19 +42,4 @@ public class UserDto {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private ClientDto client;
 
-    @Getter
-    @AllArgsConstructor
-    @Builder
-    public static class Login {
-        @NotNull(message = "El email no puede ser nulo")
-        @Email(message = "El email debe tener un formato válido")
-        private String email;
-
-        @NotBlank(message = "La contraseña no puede ser nula o vacía")
-        @Pattern(
-            regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)[A-Za-z\\d]{8,32}$",
-            message = "La contraseña debe tener al menos 8 caracteres, incluyendo mayúsculas, minúsculas y números"
-        )
-        private String password;
-    }
 }

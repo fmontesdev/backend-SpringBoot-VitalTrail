@@ -87,8 +87,11 @@ public class StripeController {
             // Verificar la firma y construir el evento
             Event event = Webhook.constructEvent(payload, signature, webhookSecret);
             
+            // Validar y encolar el evento para procesamiento asincrónico (con un tag de prueba para identificarlo)
+            // webhookService.validateAndQueueEvent(event, "test_prueba4");
+
             // Validar y encolar el evento para procesamiento asincrónico
-            webhookService.validateAndQueueEvent(event, "test_prueba4");
+            webhookService.validateAndQueueEvent(event, null);
             
             // Responder con éxito
             return ResponseEntity.ok("Webhook received");

@@ -22,10 +22,4 @@ public @interface CheckSecurity {
         public @interface canManage {}
     }
 
-    public @interface Logout {
-        @Retention(RetentionPolicy.RUNTIME)
-        @Target(ElementType.METHOD)
-        @PreAuthorize("@authorizationConfig.ableBlacklisted")
-        public @interface canBlacklisted {}
-    }
 }

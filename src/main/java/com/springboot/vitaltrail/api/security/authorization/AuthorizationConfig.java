@@ -13,13 +13,4 @@ public class AuthorizationConfig {
     public boolean isAuthenticated() {
         return authUtils.isAuthenticated();
     }
-
-    public boolean ableBlacklisted() {
-        if (!isAuthenticated()) return false;
-
-        var typeUser = authUtils.getCurrentUserRole();
-        if (typeUser.toString().contains("admin")) return false;
-
-        return true;
-    }
 }

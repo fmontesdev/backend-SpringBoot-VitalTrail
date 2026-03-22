@@ -18,19 +18,4 @@ public class JWTConfig {
     public Key accessTokenKey() {
         return Keys.hmacShaKeyFor(dotenv.get("ACCESS_TOKEN_SECRET").getBytes(StandardCharsets.UTF_8));
     }
-
-    @Bean
-    public Long accessTokenExpiration() {
-        return Long.parseLong(dotenv.get("ACCESS_TOKEN_EXPIRATION"));
-    }
-
-    @Bean
-    public Key refreshTokenKey() {
-        return Keys.hmacShaKeyFor(dotenv.get("REFRESH_TOKEN_SECRET").getBytes(StandardCharsets.UTF_8));
-    }
-
-    @Bean
-    public Long refreshTokenExpiration() {
-        return Long.parseLong(dotenv.get("REFRESH_TOKEN_EXPIRATION"));
-    }
 }
