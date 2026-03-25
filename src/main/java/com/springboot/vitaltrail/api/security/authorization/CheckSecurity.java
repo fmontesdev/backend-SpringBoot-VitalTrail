@@ -18,8 +18,27 @@ public @interface CheckSecurity {
     public @interface Protected {
         @Retention(RetentionPolicy.RUNTIME)
         @Target(ElementType.METHOD)
-        @PreAuthorize("@authorizationConfig.isAuthenticated")
+        @PreAuthorize("@authorizationConfig.isAuthenticated()")
         public @interface canManage {}
+
+        /**
+         * Requiere que el usuario sea ADMIN o el propietario del customerId indicado.
+         * Usar cuando el customerId llega como @PathVariable String customerId.
+         */
+        @Retention(RetentionPolicy.RUNTIME)
+        @Target(ElementType.METHOD)
+        @PreAuthorize("hasRole('ROLE_ADMIN') or @authorizationConfig.isOwner(#customerId)")
+        public @interface isAdminOrOwner {}
+
+        /**
+         * Requiere que el usuario sea ADMIN o el propietario del customerId indicado.
+         * Usar cuando el customerId llega dentro de un @RequestBody con campo customerId
+         * (p. ej. SubscriptionActionDto request → #request.customerId).
+         */
+        @Retention(RetentionPolicy.RUNTIME)
+        @Target(ElementType.METHOD)
+        @PreAuthorize("hasRole('ROLE_ADMIN') or @authorizationConfig.isOwner(#request.customerId)")
+        public @interface isAdminOrOwnerByAction {}
     }
 
 }
