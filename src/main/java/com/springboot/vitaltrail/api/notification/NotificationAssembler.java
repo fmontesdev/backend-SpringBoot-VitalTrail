@@ -1,5 +1,6 @@
 package com.springboot.vitaltrail.api.notification;
 
+import com.springboot.vitaltrail.domain.subscription.SubscriptionEntity;
 import com.springboot.vitaltrail.domain.user.UserEntity;
 
 import java.time.LocalDate;
@@ -40,6 +41,43 @@ public class NotificationAssembler {
             .error(error)
             .build();
         
+        return NotificationDto.builder()
+            .to(to)
+            .subject(subject)
+            .template(template)
+            .dataSubscription(data)
+            .build();
+    }
+
+    public NotificationDto buildNotification(
+        String to,
+        String subject,
+        String template,
+        UserEntity user,
+        SubscriptionEntity subscription,
+        String error
+    ) {
+        NotificationDto.DataSubscription data = NotificationDto.DataSubscription.builder()
+            .name(user.getName())
+            .surname(user.getSurname())
+            .date(LocalDate.now().toString())
+            .subscriptionId(subscription.getSubscriptionId())
+            .subscriptionType(subscription.getSubscriptionType())
+            .productName(subscription.getProductName())
+            .priceAmount(null) // no almacenado en la entidad
+            .status(subscription.getStatus())
+            .currentPeriodStart(subscription.getCurrentPeriodStart())
+            .currentPeriodEnd(subscription.getCurrentPeriodEnd())
+            .cancelAtPeriodEnd(subscription.getCancelAtPeriodEnd())
+            .cancellationReason(subscription.getCancellationReason())
+            .paymentMethodType(subscription.getPaymentMethodType())
+            .cardBrand(subscription.getCardBrand())
+            .cardLast4(subscription.getCardLast4())
+            .cardExpMonth(subscription.getCardExpMonth())
+            .cardExpYear(subscription.getCardExpYear())
+            .error(error)
+            .build();
+
         return NotificationDto.builder()
             .to(to)
             .subject(subject)

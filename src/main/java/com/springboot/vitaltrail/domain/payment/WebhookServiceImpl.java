@@ -5,8 +5,8 @@ import com.springboot.vitaltrail.domain.subscription.SubscriptionRepository;
 import com.springboot.vitaltrail.domain.user.UserEntity;
 import com.springboot.vitaltrail.domain.user.UserRepository;
 import com.springboot.vitaltrail.domain.notification.NotificationService;
-import com.springboot.vitaltrail.api.notification.NotificationAssembler;
 import com.springboot.vitaltrail.api.notification.NotificationDto;
+import com.springboot.vitaltrail.api.notification.WebhookNotificationFactory;
 import com.springboot.vitaltrail.domain.exception.AppException;
 import com.springboot.vitaltrail.domain.exception.Error;
 
@@ -26,9 +26,8 @@ import org.springframework.retry.annotation.Recover;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.scheduling.annotation.Async;
 
-import java.time.LocalDate;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -44,108 +43,53 @@ public class WebhookServiceImpl implements WebhookService {
     private final UserRepository userRepository;
     private final StripeDataService stripeDataService;
     private final NotificationService notificationService;
-    private final NotificationAssembler notificationAssembler;
-
-    // Datos de prueba centralizados
-    private static final Map<String, TestUser> TEST_USERS = new HashMap<>();
-    
-    static {
-        // Usuario Valdes
-        TEST_USERS.put("test_valdes", new TestUser(
-            "sub_1R5pB7KOmpY53KT5Rq9UtxGo",
-            "c45d7b70-7b9a-4ab2-b937-a3755a49d7a0",
-            "cus_RvXlkPriIv34F6",
-            "pm_1R5Rd5KOmpY53KT5MiQzXtuo"
-        ));
-        
-        // Usuario Llorens
-        TEST_USERS.put("test_llorens", new TestUser(
-            "sub_1R5mknKOmpY53KT5Q9zgCjlv",
-            "b7b67994-abda-4c52-9f58-82c7e346d884",
-            "cus_RykKRclTc9yT8G",
-            "pm_1R5RjpKOmpY53KT5aRzJBncN"
-        ));
-
-        // Usuario Prueba
-        TEST_USERS.put("test_prueba", new TestUser(
-            "sub_1R5Rr9KOmpY53KT5BWaM2ghg",
-            "c8f8a089-13ee-4c5e-a3ef-8ea33144ebab",
-            "cus_RzQiRPj1aTA3Lz",
-            "pm_1R5Rr7KOmpY53KT5wm4jVA9G"
-        ));
-
-        // Usuario framondo
-        TEST_USERS.put("test_framondo", new TestUser(
-            "sub_1R63ugKOmpY53KT599sU2QLk",
-            "d82d33f7-afac-4138-a9a8-092ffa3a37a8",
-            "cus_S042MpqByzEgoV",
-            "pm_1R63ueKOmpY53KT5CGSCjYjK"
-        ));
-
-            // Usuario framondo
-            TEST_USERS.put("test_prueba4", new TestUser(
-                "sub_1R6GtCKOmpY53KT5yeeFL6xF",
-                "fa363c07-fe94-4c01-90a7-72cd970fc7ed",
-                "cus_S0HSk9sA2g7qFh",
-                "pm_1R6GtAKOmpY53KT5zg6CXytW"
-            ));
-    }
-
-    /**
-     * Clase para datos de usuario de prueba
-     */
-    static class TestUser {
-        final String subscriptionId;
-        final String clientReferenceId;
-        final String customerId;
-        final String paymentMethodId;
-        
-        TestUser(String subscriptionId, String clientReferenceId, String customerId, String paymentMethodId) {
-            this.subscriptionId = subscriptionId;
-            this.clientReferenceId = clientReferenceId;
-            this.customerId = customerId;
-            this.paymentMethodId = paymentMethodId;
-        }
-    }
+    private final WebhookNotificationFactory notificationFactory;
 
     /**
      * Valida y encola un evento de Stripe para procesamiento de forma asincrónica
-     * @param event
      */
     @Override
     public void validateAndQueueEvent(Event event, String test) throws StripeException {
         logger.info("Queuing Stripe event for processing: {}", event.getType());
-        // Encola el evento para procesamiento asincrónico
         processStripeEvent(event, test);
     }
 
     /**
      * Procesa un evento de Stripe de forma asincrónica
-     * @param event
-     * @throws StripeException
      */
     @Async("webhookTaskExecutor")
     @Transactional
     @Override
     @Retryable(
-        value = {StripeException.class, DataAccessException.class}, 
+        value = {StripeException.class, DataAccessException.class},
         maxAttempts = 3,
         backoff = @Backoff(delay = 1000, multiplier = 2)
     )
     public void processStripeEvent(Event event, String test) throws StripeException {
         logger.info("Processing Stripe event asynchronously: {}", event.getType());
-        
-        // Deserializar el objeto del evento
+
+        // Deserializar el objeto del evento.
+        // getObject() devuelve Optional.empty() si la API version del evento difiere de la del SDK.
+        // En ese caso usamos deserializeUnsafe() como fallback para tolerar versiones distintas.
         EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
-        StripeObject stripeObject = dataObjectDeserializer.getObject().orElse(null);
-        
-        if (stripeObject == null) {
-            logger.error("Failed to deserialize Stripe object");
-            //! Pasar a excepciones centralizadas
-            throw new RuntimeException("Failed to deserialize Stripe object");
+        StripeObject stripeObject;
+        if (dataObjectDeserializer.getObject().isPresent()) {
+            stripeObject = dataObjectDeserializer.getObject().get();
+        } else {
+            try {
+                logger.warn("API version mismatch — falling back to deserializeUnsafe() for event: {}", event.getType());
+                stripeObject = dataObjectDeserializer.deserializeUnsafe();
+            } catch (com.stripe.exception.EventDataObjectDeserializationException ex) {
+                logger.error("Failed to deserialize Stripe object for event {}: {}", event.getType(), ex.getMessage());
+                throw new AppException(Error.STRIPE_WEBHOOK_ERROR, ex);
+            }
         }
-        
-        // Manejar diferentes tipos de eventos
+
+        if (stripeObject == null) {
+            logger.error("Failed to deserialize Stripe object for event: {}", event.getType());
+            throw new AppException(Error.STRIPE_WEBHOOK_ERROR);
+        }
+
         switch (event.getType()) {
             case "checkout.session.completed":
                 handleCheckoutSessionCompleted((Session) stripeObject, test);
@@ -167,21 +111,31 @@ public class WebhookServiceImpl implements WebhookService {
         }
     }
 
-    // Método para manejar el caso cuando todos los reintentos fallan
+    /**
+     * Método de recuperación invocado por Spring Retry cuando se agotan todos los reintentos
+     * de {@link #processStripeEvent}. Registra el error y puede utilizarse para guardar el
+     * evento fallido o enviar una alerta al equipo.
+     *
+     * @param e     excepción que causó el fallo definitivo
+     * @param event evento de Stripe que no pudo procesarse
+     */
     @Recover
     public void recoverFromProcessingFailure(Exception e, Event event) {
         logger.error("Failed to process Stripe event after all retries: {}", event.getId(), e);
-        
+
         //! Guardar en una tabla de eventos fallidos para revisión manual
         // saveFailedEvent(event, e.getMessage());
-        
+
         //! Notificar al equipo (email, Slack, etc.)
         // notificationService.sendAlert("Fallo en procesamiento de webhook: " + event.getType(), e.getMessage());
     }
 
     /**
-     * Maneja el evento checkout.session.completed
-     * @param session
+     * Procesa el evento {@code checkout.session.completed}: crea o actualiza la suscripción
+     * en base de datos, marca al usuario como premium y envía un email de bienvenida.
+     *
+     * @param session objeto {@link Session} deserializado del evento de Stripe
+     * @param test    identificador de usuario de prueba (nulo o vacío en producción)
      */
     private void handleCheckoutSessionCompleted(Session session, String test) {
         try {
@@ -190,9 +144,9 @@ public class WebhookServiceImpl implements WebhookService {
             String customerId = session.getCustomer();
             String paymentMethodId = null;
 
-            //! Datos de prueba
+            /// Datos de prueba
             if (test != null && !test.isEmpty()) {
-                TestUser testUser = TEST_USERS.get(test);
+                WebhookTestData.TestUser testUser = WebhookTestData.get(test);
                 if (testUser != null) {
                     subscriptionId = testUser.subscriptionId;
                     clientReferenceId = testUser.clientReferenceId;
@@ -201,166 +155,182 @@ public class WebhookServiceImpl implements WebhookService {
                     logger.info("DATOS DE PRUEBA checkout.session.completed - subscriptionId: {} - clientReferenceId: {} - customerId: {}", subscriptionId, clientReferenceId, customerId);
                 }
             }
-            
+
             if (subscriptionId != null && clientReferenceId != null && customerId != null) {
-                logger.info("Processing checkout completion for subscriptionId: " + subscriptionId + " from clientReferenceId: " + clientReferenceId);
-                
-                // Recuperar datos de la suscripción desde Stripe
+                logger.info("Processing checkout completion for subscriptionId: {} from clientReferenceId: {}", subscriptionId, clientReferenceId);
+
                 Map<String, Object> subscriptionData = retrieveSubscriptionData(subscriptionId);
-                
-                // Buscar usuario por ID
+
                 UUID idUser = UUID.fromString(clientReferenceId);
                 UserEntity user = userRepository.findByIdUser(idUser)
-                    .orElseThrow(() -> new RuntimeException("User not found: " + idUser));
-                
-                // Guardar o actualizar la suscripción
-                saveOrUpdateSubscription(subscriptionData, user, customerId);
+                    .orElseThrow(() -> new AppException(Error.USER_NOT_FOUND));
 
-                // Actualizar usuario a premium si no lo es
+                saveOrUpdateSubscription(subscriptionData, user, customerId);
                 updateUserPremiumStatus(user, true);
 
-                // Actualizar customerId y paymentMethodId en usuario si no lo tiene
                 if (test == null || test.isEmpty()) {
                     paymentMethodId = subscriptionData.containsKey("paymentMethodId") ? (String) subscriptionData.get("paymentMethodId") : null;
                 }
                 updateUserCustomerIdAndPaymentMethodId(user, customerId, paymentMethodId);
 
-                // Enviar notificación de suscripción por email al usuario
-                NotificationDto notification = createSubscriptionNotification(user, subscriptionId, subscriptionData);
-                notificationService.sendNotification(notification);
+                // Enviar email de bienvenida (no crítico — no interrumpe si falla)
+                try {
+                    notificationService.sendNotification(notificationFactory.buildWelcome(user, subscriptionData));
+                } catch (com.springboot.vitaltrail.domain.exception.NotificationException e) {
+                    logger.error("Failed to send welcome email for user {}: {}", user.getIdUser(), e.getMessage());
+                }
             } else {
                 logger.error("Missing subscriptionId or clientReferenceId in session");
             }
         } catch (Exception e) {
             logger.error("Error processing checkout.session.completed: {}", e.getMessage());
-            //! Pasar a excepciones centralizadas
-            throw new RuntimeException("Failed to process checkout session", e);
+            throw new AppException(Error.STRIPE_WEBHOOK_ERROR, e);
         }
     }
 
     /**
-     * Maneja el evento customer.subscription.updated
-     * @param subscription
+     * Procesa el evento {@code customer.subscription.updated}: actualiza el estado de la
+     * suscripción en base de datos, recalcula el estado premium del usuario y envía un email
+     * de cancelación de renovación o de reactivación si {@code cancelAtPeriodEnd} cambió.
+     *
+     * @param subscription objeto {@link com.stripe.model.Subscription} deserializado del evento
+     * @param test         identificador de usuario de prueba (nulo o vacío en producción)
      */
     private void handleSubscriptionUpdated(com.stripe.model.Subscription subscription, String test) {
         try {
             String subscriptionId = subscription.getId();
             logger.info("Processing subscription update: {}", subscriptionId);
 
-            //! Datos de prueba
+            /// Datos de prueba
             if (test != null && !test.isEmpty()) {
-                TestUser testUser = TEST_USERS.get(test);
+                WebhookTestData.TestUser testUser = WebhookTestData.get(test);
                 if (testUser != null) {
                     subscriptionId = testUser.subscriptionId;
                     logger.info("DATOS DE PRUEBA customer.subscription.updated - subscriptionId: {}", subscriptionId);
                 }
             }
 
-            // Buscar suscripción o generar error si no existe
-            SubscriptionEntity existingSubscription = findSubscriptionOrThrow(subscriptionId);
-                
+            Optional<SubscriptionEntity> maybeSubscription = subscriptionRepository.findBySubscriptionId(subscriptionId);
+            if (maybeSubscription.isEmpty()) {
+                logger.info("Subscription {} not found in DB, skipping customer.subscription.updated (race condition on creation)", subscriptionId);
+                return;
+            }
+            SubscriptionEntity existingSubscription = maybeSubscription.get();
+
+            // Capturar el valor anterior para detectar cambios en la renovación automática
+            Boolean oldCancelAtPeriodEnd = existingSubscription.getCancelAtPeriodEnd();
+
             // Actualizar campos básicos
             existingSubscription.setStatus(subscription.getStatus());
             existingSubscription.setCurrentPeriodStart(subscription.getCurrentPeriodStart());
             existingSubscription.setCurrentPeriodEnd(subscription.getCurrentPeriodEnd());
             existingSubscription.setCancelAtPeriodEnd(subscription.getCancelAtPeriodEnd());
             existingSubscription.setLastEventType("customer.subscription.updated");
-            
-            // Actualizar elementos de la suscripción si hay cambios
-            if (subscription.getItems() != null && subscription.getItems().getData() != null && 
+
+            // Actualizar datos de producto/precio si hay cambios en los items
+            if (subscription.getItems() != null && subscription.getItems().getData() != null &&
                 !subscription.getItems().getData().isEmpty()) {
-                
-                // Obtener detalles expandidos para actualización completa
+
                 Map<String, Object> subscriptionData = retrieveSubscriptionData(subscriptionId);
-                
-                // Actualizar datos del producto y precio si han cambiado
-                if (subscriptionData.containsKey("priceId")) {
-                    existingSubscription.setPriceId((String) subscriptionData.get("priceId"));
-                }
-                if (subscriptionData.containsKey("productId")) {
-                    existingSubscription.setProductId((String) subscriptionData.get("productId"));
-                }
-                if (subscriptionData.containsKey("productName")) {
-                    existingSubscription.setProductName((String) subscriptionData.get("productName"));
-                }
-                if (subscriptionData.containsKey("billingInterval")) {
-                    existingSubscription.setBillingInterval((String) subscriptionData.get("billingInterval"));
-                }
-                if (subscriptionData.containsKey("subscriptionType")) {
-                    existingSubscription.setSubscriptionType((String) subscriptionData.get("subscriptionType"));
-                }
+
+                if (subscriptionData.containsKey("priceId")) existingSubscription.setPriceId((String) subscriptionData.get("priceId"));
+                if (subscriptionData.containsKey("productId")) existingSubscription.setProductId((String) subscriptionData.get("productId"));
+                if (subscriptionData.containsKey("productName")) existingSubscription.setProductName((String) subscriptionData.get("productName"));
+                if (subscriptionData.containsKey("billingInterval")) existingSubscription.setBillingInterval((String) subscriptionData.get("billingInterval"));
+                if (subscriptionData.containsKey("subscriptionType")) existingSubscription.setSubscriptionType((String) subscriptionData.get("subscriptionType"));
             }
-            
-            // Guardar suscripción
+
             saveSubscription(existingSubscription);
 
-            // Obtener el usuario asociado y actualizar isPremium
+            // Actualizar isPremium según el status real
             UserEntity user = existingSubscription.getUser();
-            updateUserPremiumStatus(user, true);
+            boolean isActive = "active".equals(subscription.getStatus()) || "trialing".equals(subscription.getStatus());
+            updateUserPremiumStatus(user, isActive);
+
+            // Notificar si cambió cancelAtPeriodEnd (cancelación o reactivación de renovación)
+            Boolean newCancelAtPeriodEnd = subscription.getCancelAtPeriodEnd();
+            if (!Objects.equals(oldCancelAtPeriodEnd, newCancelAtPeriodEnd)) {
+                try {
+                    if (Boolean.TRUE.equals(newCancelAtPeriodEnd)) {
+                        logger.info("cancelAtPeriodEnd cambió a true para {}: enviando email de cancelación de renovación", subscriptionId);
+                        notificationService.sendNotification(notificationFactory.buildCancellationScheduled(user, existingSubscription));
+                    } else {
+                        logger.info("cancelAtPeriodEnd cambió a false para {}: enviando email de reactivación", subscriptionId);
+                        notificationService.sendNotification(notificationFactory.buildReactivation(user, existingSubscription));
+                    }
+                } catch (com.springboot.vitaltrail.domain.exception.NotificationException e) {
+                    logger.error("Failed to send subscription updated notification for subscription {}: {}", subscriptionId, e.getMessage());
+                }
+            }
         } catch (Exception e) {
             logger.error("Error processing customer.subscription.updated: {}", e.getMessage());
-            //! Pasar a excepciones centralizadas
-            throw new RuntimeException("Failed to process subscription update", e);
+            throw new AppException(Error.STRIPE_WEBHOOK_ERROR, e);
         }
     }
 
     /**
-     * Maneja el evento customer.subscription.deleted
-     * @param subscription
+     * Procesa el evento {@code customer.subscription.deleted}: marca la suscripción como
+     * cancelada, revoca el estado premium del usuario y envía un email de cancelación.
+     *
+     * @param subscription objeto {@link com.stripe.model.Subscription} deserializado del evento
+     * @param test         identificador de usuario de prueba (nulo o vacío en producción)
      */
     private void handleSubscriptionDeleted(com.stripe.model.Subscription subscription, String test) {
         try {
             String subscriptionId = subscription.getId();
             logger.info("Processing subscription deletion: {}", subscriptionId);
 
-            //! Datos de prueba
+            /// Datos de prueba
             if (test != null && !test.isEmpty()) {
-                TestUser testUser = TEST_USERS.get(test);
+                WebhookTestData.TestUser testUser = WebhookTestData.get(test);
                 if (testUser != null) {
                     subscriptionId = testUser.subscriptionId;
                     logger.info("DATOS DE PRUEBA customer.subscription.deleted - subscriptionId: {}", subscriptionId);
                 }
             }
-            
-            // Buscar suscripción o generar error si no existe
+
             SubscriptionEntity existingSubscription = findSubscriptionOrThrow(subscriptionId);
-            
-            // Actualizar suscripción
+
             existingSubscription.setStatus("canceled");
             existingSubscription.setLastEventType("customer.subscription.deleted");
             existingSubscription.setCancelAtPeriodEnd(true);
-            
-            // Si hay razón de cancelación en los metadatos, incorporarla
-            if (subscription.getMetadata() != null && 
+
+            if (subscription.getMetadata() != null &&
                 subscription.getMetadata().containsKey("cancellation_reason")) {
-                existingSubscription.setCancellationReason(
-                    subscription.getMetadata().get("cancellation_reason"));
+                existingSubscription.setCancellationReason(subscription.getMetadata().get("cancellation_reason"));
             }
-            
-            // Guardar suscripción
+
             saveSubscription(existingSubscription);
 
-            // Obtener el usuario asociado y actualizar isPremium
             UserEntity user = existingSubscription.getUser();
             updateUserPremiumStatus(user, false);
+
+            // Enviar email de cancelación (no crítico — no interrumpe si falla)
+            try {
+                notificationService.sendNotification(notificationFactory.buildSubscriptionCancelled(user, existingSubscription));
+            } catch (com.springboot.vitaltrail.domain.exception.NotificationException e) {
+                logger.error("Failed to send cancellation email for subscription {}: {}", existingSubscription.getSubscriptionId(), e.getMessage());
+            }
         } catch (Exception e) {
             logger.error("Error processing customer.subscription.deleted: {}", e.getMessage());
-            //! Pasar a excepciones centralizadas
-            throw new RuntimeException("Failed to process subscription delete", e);
+            throw new AppException(Error.STRIPE_WEBHOOK_ERROR, e);
         }
     }
 
     /**
-     * Maneja el evento invoice.payment_succeeded
-     * @param invoice
+     * Procesa el evento {@code invoice.payment_succeeded}: envía un email de confirmación de
+     * renovación únicamente cuando el motivo de facturación es {@code subscription_cycle}.
+     *
+     * @param invoice objeto {@link Invoice} deserializado del evento de Stripe
+     * @param test    identificador de usuario de prueba (nulo o vacío en producción)
      */
     private void handleInvoicePaymentSucceeded(Invoice invoice, String test) {
         try {
             String subscriptionId = invoice.getSubscription();
 
-            //! Datos de prueba
+            /// Datos de prueba
             if (test != null && !test.isEmpty()) {
-                TestUser testUser = TEST_USERS.get(test);
+                WebhookTestData.TestUser testUser = WebhookTestData.get(test);
                 if (testUser != null) {
                     subscriptionId = testUser.subscriptionId;
                     logger.info("DATOS DE PRUEBA invoice.payment_succeeded - subscriptionId: {}", subscriptionId);
@@ -368,41 +338,49 @@ public class WebhookServiceImpl implements WebhookService {
             }
 
             if (subscriptionId != null) {
-                logger.info("Processing successful payment for subscription: {}", subscriptionId);
-                
-                // Buscar suscripción o generar error si no existe
-                SubscriptionEntity subscription = findSubscriptionOrThrow(subscriptionId);
-                
-                // Actualizar suscripción
-                subscription.setStatus("active");
-                subscription.setLastEventType("invoice.payment_succeeded");
-                saveSubscription(subscription);
+                String billingReason = invoice.getBillingReason();
+                logger.info("Processing invoice.payment_succeeded for subscription: {}, billing_reason: {}", subscriptionId, billingReason);
 
-                // Obtener el usuario asociado y actualizar isPremium
-                UserEntity user = subscription.getUser();
-                updateUserPremiumStatus(user, true);
-
-                //! Guardar el historial de facturas ???
-                //! Enviar email de alerta al usuario ???
+                // Solo enviar email de renovación en ciclos de renovación
+                if ("subscription_cycle".equals(billingReason)) {
+                    Optional<SubscriptionEntity> maybeSubscription = subscriptionRepository.findBySubscriptionId(subscriptionId);
+                    if (maybeSubscription.isEmpty()) {
+                        logger.info("Subscription {} not found in DB, skipping renewal email", subscriptionId);
+                        return;
+                    }
+                    SubscriptionEntity subscription = maybeSubscription.get();
+                    UserEntity user = subscription.getUser();
+                    Map<String, Object> subscriptionData = retrieveSubscriptionData(subscriptionId);
+                    try {
+                        notificationService.sendNotification(notificationFactory.buildRenewal(user, subscriptionData));
+                    } catch (com.springboot.vitaltrail.domain.exception.NotificationException e) {
+                        logger.error("Failed to send renewal email for subscription {}: {}", subscriptionId, e.getMessage());
+                    }
+                } else {
+                    logger.info("Skipping renewal email for billing_reason: {} (subscription {})", billingReason, subscriptionId);
+                }
             }
         } catch (Exception e) {
             logger.error("Error processing invoice.payment_succeeded: {}", e.getMessage());
-            //! Pasar a excepciones centralizadas
-            throw new RuntimeException("Failed to process payment succeeded", e);
+            throw new AppException(Error.STRIPE_WEBHOOK_ERROR, e);
         }
     }
 
     /**
-     * Maneja el evento invoice.payment_failed
-     * @param invoice
+     * Procesa el evento {@code invoice.payment_failed}: marca la suscripción como
+     * {@code past_due}, revoca el estado premium del usuario y envía un email de aviso
+     * de fallo de pago.
+     *
+     * @param invoice objeto {@link Invoice} deserializado del evento de Stripe
+     * @param test    identificador de usuario de prueba (nulo o vacío en producción)
      */
     private void handleInvoicePaymentFailed(Invoice invoice, String test) {
         try {
             String subscriptionId = invoice.getSubscription();
 
-            //! Datos de prueba
+            /// Datos de prueba
             if (test != null && !test.isEmpty()) {
-                TestUser testUser = TEST_USERS.get(test);
+                WebhookTestData.TestUser testUser = WebhookTestData.get(test);
                 if (testUser != null) {
                     subscriptionId = testUser.subscriptionId;
                     logger.info("DATOS DE PRUEBA invoice.payment_failed - subscriptionId: {}", subscriptionId);
@@ -411,63 +389,65 @@ public class WebhookServiceImpl implements WebhookService {
 
             if (subscriptionId != null) {
                 logger.info("Processing failed payment for subscription: {}", subscriptionId);
-                
-                // Buscar suscripción o generar error si no existe
+
                 SubscriptionEntity subscription = findSubscriptionOrThrow(subscriptionId);
-                
-                // Actualizar suscripción
-                subscription.setStatus("past_due"); // El estado usual en Stripe para pagos fallidos
+
+                subscription.setStatus("past_due");
                 subscription.setLastEventType("invoice.payment_failed");
                 saveSubscription(subscription);
-                
-                // Obtener el usuario asociado y actualizar isPremium
+
                 UserEntity user = subscription.getUser();
                 updateUserPremiumStatus(user, false);
 
-                //! Enviar email de alerta al usuario ???
-                //! Limitar funcionalidades hasta que el pago se resuelva ???
+                // Enviar email de aviso de fallo de pago (no crítico — no interrumpe si falla)
+                try {
+                    notificationService.sendNotification(notificationFactory.buildPaymentFailed(user, subscription));
+                } catch (com.springboot.vitaltrail.domain.exception.NotificationException e) {
+                    logger.error("Failed to send payment failed email for subscription {}: {}", subscriptionId, e.getMessage());
+                }
             }
         } catch (Exception e) {
             logger.error("Error processing invoice.payment_failed: {}", e.getMessage());
-            //! Pasar a excepciones centralizadas
-            throw new RuntimeException("Failed to process payment failed", e);
+            throw new AppException(Error.STRIPE_WEBHOOK_ERROR, e);
         }
     }
 
     /**
-     * Recupera datos detallados de una suscripción desde Stripe
-     * @param subscriptionId
-     * @return
+     * Obtiene los datos de una suscripción de Stripe (precio, producto, período, etc.)
+     * mediante {@link StripeDataService}.
+     *
+     * @param subscriptionId identificador de la suscripción en Stripe
+     * @return mapa con los datos de la suscripción
+     * @throws StripeException si la llamada a la API de Stripe falla
      */
     private Map<String, Object> retrieveSubscriptionData(String subscriptionId) throws StripeException {
         return stripeDataService.getSubscriptionData(subscriptionId);
     }
 
     /**
-     * Guarda o actualiza una suscripción en la base de datos
-     * @param subscriptionData
-     * @param user
-     * @param customerId
+     * Crea o actualiza una {@link SubscriptionEntity} a partir de los datos de Stripe.
+     * Si ya existe una suscripción con el mismo {@code subscriptionId} la actualiza;
+     * si no, la crea vinculada al usuario indicado.
+     *
+     * @param subscriptionData mapa con los datos de la suscripción obtenidos de Stripe
+     * @param user             entidad del usuario propietario de la suscripción
+     * @param customerId       identificador del cliente en Stripe
      */
     private void saveOrUpdateSubscription(Map<String, Object> subscriptionData, UserEntity user, String customerId) {
         String subscriptionId = (String) subscriptionData.get("subscriptionId");
 
-        // Buscar si ya existe
         Optional<SubscriptionEntity> existingSubscription = subscriptionRepository.findBySubscriptionId(subscriptionId);
-            
+
         SubscriptionEntity subscription;
         if (existingSubscription.isPresent()) {
-            // Actualizar suscripción existente
             subscription = existingSubscription.get();
         } else {
-            // Crear nueva suscripción
             subscription = new SubscriptionEntity();
             subscription.setSubscriptionId(subscriptionId);
             subscription.setUser(user);
             subscription.setCustomerId(customerId);
         }
-        
-        // Actualizar campos
+
         subscription.setSubscriptionType((String) subscriptionData.get("subscriptionType"));
         subscription.setBillingInterval((String) subscriptionData.get("billingInterval"));
         subscription.setProductId((String) subscriptionData.get("productId"));
@@ -485,15 +465,16 @@ public class WebhookServiceImpl implements WebhookService {
         subscription.setCardLast4((String) subscriptionData.get("cardLast4"));
         subscription.setCardExpMonth((Long) subscriptionData.get("cardExpMonth"));
         subscription.setCardExpYear((Long) subscriptionData.get("cardExpYear"));
-        
-        // Guardar suscripción
+
         saveSubscription(subscription);
     }
 
     /**
-     * Busca una suscripción por ID, generando error si no existe
-     * @param subscriptionId
-     * @return
+     * Busca una suscripción por su {@code subscriptionId} o lanza {@link AppException}
+     * con {@link Error#SUBSCRIPTION_NOT_FOUND} si no existe.
+     *
+     * @param subscriptionId identificador de la suscripción en Stripe
+     * @return la entidad de suscripción encontrada
      */
     private SubscriptionEntity findSubscriptionOrThrow(String subscriptionId) {
         return subscriptionRepository.findBySubscriptionId(subscriptionId)
@@ -501,8 +482,9 @@ public class WebhookServiceImpl implements WebhookService {
     }
 
     /**
-     * Guarda una suscripción en la base de datos
-     * @param subscription
+     * Persiste la suscripción en base de datos y registra un log informativo.
+     *
+     * @param subscription entidad de suscripción a guardar o actualizar
      */
     private void saveSubscription(SubscriptionEntity subscription) {
         subscriptionRepository.save(subscription);
@@ -510,9 +492,11 @@ public class WebhookServiceImpl implements WebhookService {
     }
 
     /**
-     * Actualiza el estado premium de un cliente si es necesario
-     * @param user
-     * @param isPremium
+     * Actualiza el campo {@code isPremium} del usuario solo si su valor ha cambiado,
+     * evitando escrituras innecesarias en base de datos.
+     *
+     * @param user      entidad del usuario a actualizar
+     * @param isPremium nuevo valor del estado premium
      */
     private void updateUserPremiumStatus(UserEntity user, boolean isPremium) {
         if (user.getIsPremium() != isPremium) {
@@ -523,29 +507,21 @@ public class WebhookServiceImpl implements WebhookService {
     }
 
     /**
-     * Actualiza el customerId de un cliente si no tiene uno
-     * @param user
-     * @param customerId
+     * Almacena el {@code customerId} y el {@code paymentMethodId} de Stripe en el perfil
+     * de cliente del usuario, solo si aún no están establecidos.
+     *
+     * @param user            entidad del usuario a actualizar
+     * @param customerId      identificador del cliente en Stripe
+     * @param paymentMethodId identificador del método de pago en Stripe
      */
     private void updateUserCustomerIdAndPaymentMethodId(UserEntity user, String customerId, String paymentMethodId) {
         if (user.getClient().getCustomerId() == null || user.getClient().getCustomerId().isEmpty()) {
             user.getClient().setCustomerId(customerId);
         }
-
         if (user.getClient().getPaymentMethodId() == null || user.getClient().getPaymentMethodId().isEmpty()) {
             user.getClient().setPaymentMethodId(paymentMethodId);
         }
-
         userRepository.save(user);
         logger.info("Updated stripe customerId {}, paymentMethodId {} for client {}", customerId, paymentMethodId, user.getIdUser());
-    }
-
-    private NotificationDto createSubscriptionNotification(UserEntity user, String subscriptionId, Map<String, Object> subscriptionData) {
-        String to = user.getEmail();
-        String subject = "Confirmación Suscripción VitalTrail";
-        String template = "subscription-email";
-        String error = "No se pudo conectar con el servicio Mailgun";
-
-        return notificationAssembler.buildNotification(to, subject, template, user, subscriptionData, error);
     }
 }
