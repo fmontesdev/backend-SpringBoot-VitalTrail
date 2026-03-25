@@ -30,6 +30,11 @@ public enum Error {
     USER_NOT_FOUND("Usuario no encontrado", HttpStatus.NOT_FOUND),
     SUBSCRIPTION_NOT_FOUND("Suscripción no encontrada", HttpStatus.NOT_FOUND),
 
+    // Errores de Stripe
+    STRIPE_ERROR("Error al comunicarse con Stripe", HttpStatus.BAD_GATEWAY),
+    STRIPE_INVALID_SIGNATURE("Firma del webhook de Stripe inválida", HttpStatus.BAD_REQUEST),
+    STRIPE_WEBHOOK_ERROR("Error al procesar el evento de Stripe", HttpStatus.INTERNAL_SERVER_ERROR),
+
     // Error genérico del servidor
     INTERNAL_SERVER_ERROR("Error interno del servidor", HttpStatus.INTERNAL_SERVER_ERROR),
     SERVICE_UNAVAILABLE("Error de conexión", HttpStatus.SERVICE_UNAVAILABLE);

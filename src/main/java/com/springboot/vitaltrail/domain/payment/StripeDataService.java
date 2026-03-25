@@ -1,6 +1,10 @@
 package com.springboot.vitaltrail.domain.payment;
 
+import com.springboot.vitaltrail.api.invoice.InvoiceDto;
+
 import com.stripe.model.checkout.Session;
+import com.stripe.model.Invoice;
+import com.stripe.param.InvoiceListParams;
 import com.stripe.exception.StripeException;
 
 import lombok.RequiredArgsConstructor;
@@ -10,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -204,6 +209,61 @@ public class StripeDataService {
                 : product.getName().toLowerCase().replace(" ", "_");
                 
             result.put("subscriptionType", subscriptionType);
+        }
+    }
+
+    /**
+     * Recupera la lista de facturas de un cliente en Stripe
+     * @param customerId ID del cliente en Stripe
+     * @return Lista de InvoiceDto con las facturas del cliente
+     * @throws StripeException Si ocurre un error al recuperar los datos
+     */
+    public List<InvoiceDto> getCustomerInvoices(String customerId) throws StripeException {
+        InvoiceListParams params = InvoiceListParams.builder()
+            .setCustomer(customerId)
+            .setLimit(25L)
+            .build();
+
+        return Invoice.list(params).getData().stream()
+            .map(inv -> InvoiceDto.builder()
+                .id(inv.getId())
+                .number(inv.getNumber())
+                .status(inv.getStatus())
+                .amountTotal(inv.getAmountDue())
+                .currency(inv.getCurrency())
+                .created(inv.getCreated())
+                .invoiceUrl(inv.getHostedInvoiceUrl())
+                .invoicePdf(inv.getInvoicePdf())
+                .description(extractInvoiceDescription(inv))
+                .periodStart(inv.getPeriodStart())
+                .periodEnd(inv.getPeriodEnd())
+                .build())
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Deriva el concepto de la factura a partir del intervalo de facturación
+     * del primer elemento de línea de la suscripción.
+     * @param inv Factura de Stripe
+     * @return "Suscripción mensual", "Suscripción anual" o null si no se puede determinar
+     */
+    private String extractInvoiceDescription(Invoice inv) {
+        try {
+            var lines = inv.getLines();
+            if (lines == null || lines.getData() == null || lines.getData().isEmpty()) {
+                return null;
+            }
+            var plan = lines.getData().get(0).getPlan();
+            if (plan == null) {
+                return null;
+            }
+            return switch (plan.getInterval()) {
+                case "month" -> "Suscripción mensual";
+                case "year"  -> "Suscripción anual";
+                default      -> null;
+            };
+        } catch (Exception e) {
+            return null;
         }
     }
 }

@@ -17,12 +17,18 @@ import com.springboot.vitaltrail.domain.exception.NotificationException;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @ControllerAdvice
 public class AppExceptionHandler {
+    private static final Logger logger = LoggerFactory.getLogger(AppExceptionHandler.class);
+
     // Maneja errores genéricos
     @ExceptionHandler(Exception.class)
     @ResponseBody
     public ResponseEntity<ErrorMessages> handleGenericException(Exception exception) {
+        logger.error("Error inesperado: {}", exception.getMessage(), exception);
         return responseErrorMessages(
                 Map.of("INTERNAL_SERVER_ERROR", "Error interno del servidor"), // Error code, Error message
                 HttpStatus.INTERNAL_SERVER_ERROR // Error http status
