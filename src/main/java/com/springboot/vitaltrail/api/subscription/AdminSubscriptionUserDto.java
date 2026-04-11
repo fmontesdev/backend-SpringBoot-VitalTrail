@@ -11,4 +11,6 @@ public class AdminSubscriptionUserDto {
     private String username;
     private String email;
     private String imgUser;
+    private String name;
+    private String surname;
 }

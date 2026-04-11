@@ -10,6 +10,7 @@ import lombok.Getter;
 public class AdminSubscriptionItemDto {
     private String subscriptionId;
     private String status;
+    private String subscriptionType;
     private String billingInterval;
     private String productName;
     private Long currentPeriodEnd;

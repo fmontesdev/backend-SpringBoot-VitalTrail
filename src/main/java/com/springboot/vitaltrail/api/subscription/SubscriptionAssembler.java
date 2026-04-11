@@ -41,11 +41,14 @@ public class SubscriptionAssembler {
             .username(entity.getUser().getUsername())
             .email(entity.getUser().getEmail())
             .imgUser(entity.getUser().getImgUser())
+            .name(entity.getUser().getName())
+            .surname(entity.getUser().getSurname())
             .build();
 
         return AdminSubscriptionItemDto.builder()
             .subscriptionId(entity.getSubscriptionId())
             .status(entity.getStatus())
+            .subscriptionType(entity.getSubscriptionType())
             .billingInterval(entity.getBillingInterval())
             .productName(entity.getProductName())
             .currentPeriodEnd(entity.getCurrentPeriodEnd())
