@@ -34,7 +34,19 @@ build/
 
 .env
 
-### Agents ###
-/.agents
+# Agents
+.agents/
 AGENTS.md
+
+# OpenCode
+opencode/
+.opencode/
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Docs
+docs/
+
 skills-lock.json

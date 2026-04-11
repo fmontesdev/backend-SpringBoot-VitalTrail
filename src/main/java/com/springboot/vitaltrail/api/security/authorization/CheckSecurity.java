@@ -39,6 +39,15 @@ public @interface CheckSecurity {
         @Target(ElementType.METHOD)
         @PreAuthorize("hasRole('ROLE_ADMIN') or @authorizationConfig.isOwner(#request.customerId)")
         public @interface isAdminOrOwnerByAction {}
+
+        /**
+         * Requiere que el usuario sea ADMIN.
+         * Usar en endpoints de administración exclusivos de ROLE_ADMIN.
+         */
+        @Retention(RetentionPolicy.RUNTIME)
+        @Target(ElementType.METHOD)
+        @PreAuthorize("hasRole('ROLE_ADMIN')")
+        public @interface isAdmin {}
     }
 
 }

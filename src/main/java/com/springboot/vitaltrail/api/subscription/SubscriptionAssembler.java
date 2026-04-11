@@ -8,12 +8,9 @@ import com.springboot.vitaltrail.domain.subscription.SubscriptionEntity;
 @Component
 @RequiredArgsConstructor
 public class SubscriptionAssembler {
-    public SubscriptionDto toSubscriptionResponse(SubscriptionEntity entity) {
-        return buildSubscription(entity);
-    }
 
-    private SubscriptionDto buildSubscription(SubscriptionEntity entity) {
-        SubscriptionDto.SubscriptionDtoBuilder builder = SubscriptionDto.builder()
+    public SubscriptionDto toSubscriptionResponse(SubscriptionEntity entity) {
+        return SubscriptionDto.builder()
             .subscriptionId(entity.getSubscriptionId())
             .subscriptionType(entity.getSubscriptionType())
             .billingInterval(entity.getBillingInterval())
@@ -35,8 +32,26 @@ public class SubscriptionAssembler {
             .status(entity.getStatus())
             .lastEventType(entity.getLastEventType())
             .createdAt(entity.getCreatedAt())
-            .updatedAt(entity.getUpdatedAt());
+            .updatedAt(entity.getUpdatedAt())
+            .build();
+    }
 
-        return builder.build();
+    public AdminSubscriptionItemDto toAdminSubscriptionItem(SubscriptionEntity entity) {
+        AdminSubscriptionUserDto userDto = AdminSubscriptionUserDto.builder()
+            .username(entity.getUser().getUsername())
+            .email(entity.getUser().getEmail())
+            .imgUser(entity.getUser().getImgUser())
+            .build();
+
+        return AdminSubscriptionItemDto.builder()
+            .subscriptionId(entity.getSubscriptionId())
+            .status(entity.getStatus())
+            .billingInterval(entity.getBillingInterval())
+            .productName(entity.getProductName())
+            .currentPeriodEnd(entity.getCurrentPeriodEnd())
+            .cancelAtPeriodEnd(entity.getCancelAtPeriodEnd())
+            .customerId(entity.getCustomerId())
+            .user(userDto)
+            .build();
     }
 }
